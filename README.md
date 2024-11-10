@@ -46,10 +46,7 @@ We envision expanding Docorama's capabilities to include more AI-driven features
 
 We welcome contributions from the community! Please feel free to submit issues or pull requests to help improve Docorama.
 
-## License
-
-This project is licensed under the MIT License. See the `LICENSE` file for more details.
 
 ## Contact
 
-For questions or feedback, please reach out to our team at [your contact email].
+For questions or feedback, please reach out to our team at shaikabdulmalik958@gmail.com or sharan.goku19@gmail.com .
