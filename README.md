@@ -6,6 +6,15 @@ Welcome to **Docorama**, where we are transforming document creation and editing
 
 Docorama is an AI-based document editor designed to simplify the process of writing and editing by using voice commands. The goal is to make content creation entirely verbal, providing a smooth, hands-free user experience. The following video demo you see was generated through our **Captions AI**, showcasing the power and efficiency of our technology.
 https://github.com/user-attachments/assets/7937a4d8-b857-4e40-9606-601bc066110d
+<img width="1450" alt="Screenshot 2024-11-10 at 6 50 44 AM" src="https://github.com/user-attachments/assets/740d4f27-d574-4b23-baa9-4894143813e5">
+
+<img width="1427" alt="Screenshot 2024-11-10 at 6 51 08 AM" src="https://github.com/user-attachments/assets/33e24e5d-7300-46ba-8f61-879fe94eaf0f">
+
+<img width="870" alt="Screenshot 2024-11-10 at 7 07 44 AM" src="https://github.com/user-attachments/assets/57fc5389-16f4-4718-8fe7-51ba392e4efc">
+
+<img width="911" alt="Screenshot 2024-11-10 at 06 50 49" src="https://github.com/user-attachments/assets/d3620abf-b565-4e88-bb59-381008f4a614">
+
+<img width="912" alt="Screenshot 2024-11-10 at 06 50 56" src="https://github.com/user-attachments/assets/37bf78de-0c92-4d8d-9fc5-5dd887a0e046">
 
 
 ## Key Features
@@ -70,11 +79,12 @@ flowchart TD
 
 We envision expanding Docorama's capabilities to include more AI-driven features and further enhance the user experience. Our mission is to make document editing and content creation as smooth and efficient as possible.
 
-## Getting Started
-
-1. Clone this repository to your local machine.
-2. Install the required dependencies listed in `requirements.txt`.
-3. Follow the instructions in the documentation to set up and run the application.
+## User Journey
+1. User starts talking to the agents about the topic on which they want to generate an article.
+2. The agent brainstorms with users, and starts generating the content for the artile. The content can comprise of text, images and videos.
+3. The user then can ask the agent to make any desired changes to the generated content.
+4. Once, the document is generated the user can use our summarizer tool to generate a summary.
+5. This summary can further be used to generate a short form video representation of the article.
 
 ## Contributing
 
