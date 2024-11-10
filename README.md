@@ -25,6 +25,40 @@ https://github.com/user-attachments/assets/7937a4d8-b857-4e40-9606-601bc066110d
 2. **Hands-Free Editing**: Users can verbally command edits, and OpenAI's predictive features make precise modifications.
 3. **Document Summarization**: Once the document is finalized, OpenAI summarizes the content, creating a script that Captions AI can use to generate video content.
 
+```mermaid
+flowchart TD
+    subgraph User_Interaction
+        Input[User Input] --> Text[Text Input]
+        Input --> Voice[Voice Input via WebSpeech API]
+    end
+
+    subgraph Natural_Language_Processing
+        Text --> GPT[OpenAI GPT-4]
+        Voice --> GPT
+        GPT -->|JSON Response| Handler[Response Handler]
+    end
+
+    subgraph Content_Generation
+        Handler -->|speak_content| Speech[ElevenLabs TTS API]
+        Handler -->|edit_command| Edit[Content Editor]
+        Edit --> ImageGen[DALL-E 3 API]
+        Edit --> VideoGen[Luma AI API]
+        Edit --> TextGen[GPT-4 Content]
+    end
+
+    subgraph Content_Display
+        Speech --> Audio[Audio Playback]
+        ImageGen --> Iframe[iframe Display]
+        VideoGen --> Iframe
+        TextGen --> Iframe
+    end
+
+    style Natural_Language_Processing fill:#f9f,stroke:#333
+    style Content_Generation fill:#bbf,stroke:#333
+    style User_Interaction fill:#bfb,stroke:#333
+    style Content_Display fill:#fbb,stroke:#333
+```
+
 ## Technologies Used
 
 - **Eleven Labs**: For high-quality speech-to-text conversion.
