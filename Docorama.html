@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Docorama</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .article-container {
+            flex-grow: 1;
+            width: 800px; /* Fixed width */
+            margin: 20px auto 100px auto;
+            background-color: #f5f5f5;
+            border-radius: 8px;
+            height: calc(100vh - 180px);
+            overflow-y: auto;
+            padding: 20px;
+            box-sizing: border-box;
+            position: relative; /* Added for proper loading positioning */
+        }
+
+        .input-container {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 20px;
+            background-color: white;
+            box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            height: 80px; /* Fixed height */
+            box-sizing: border-box;
+        }
+
+        .article-frame {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background-color: white;
+        }
+
+        .loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            padding: 20px;
+            background-color: #fff3cd;
+            border-radius: 4px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+            display: none;
+        }
+
+        .loading.visible {
+            display: block;
+            opacity: 1;
+        }
+
+        .input-field {
+            width: 60%;
+            max-width: 600px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+
+        .button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+
+        .send-button {
+            background-color: #007bff;
+            color: white;
+        }
+
+        .mic-button {
+            background-color: #dc3545;
+            color: white;
+        }
+
+        .mic-button.listening {
+            background-color: #28a745 !important;
+        }
+
+        .mic-button:focus {
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.25);
+        }
+
+        .button:hover {
+            opacity: 0.9;
+        }
+
+        .input-container.disabled {
+            opacity: 0.7;
+            pointer-events: none;
+        }
+
+        .mic-button.active {
+            transform: scale(0.95);
+            transition: transform 0.1s;
+        }
+
+        /* Add a tooltip to show the keyboard shortcut */
+        .mic-button::after {
+            content: 'Alt + M';
+            position: absolute;
+            bottom: -25px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 12px;
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 3px 6px;
+            border-radius: 3px;
+            opacity: 0;
+            transition: opacity 0.2s;
+            pointer-events: none;
+        }
+
+        .mic-button:hover::after {
+            opacity: 1;
+        }
+
+        .temp-play-button:hover {
+            background-color: #0056b3 !important;
+        }
+    </style>
+</head>
+<body>
+    <h1 style="text-align: center; margin: 2px 0; font-size: 2em; color: #333;">Docorama ✨📄</h1>
+    <div class="article-container">
+        <iframe id="articleFrame" class="article-frame"></iframe>
+        <div class="loading">Processing...</div>
+    </div>
+
+    <div class="input-container">
+        <input type="text" class="input-field" placeholder="Type your message...">
+        <button class="button mic-button" style="position: relative;">
+            <i class="fas fa-microphone"></i> Mic
+        </button>
+        <button class="button send-button">Send</button>
+    </div>
+
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+
+    <script>
+        const BASE_URL = 'http://localhost:5000';
+
+        let recognition = null;
+        let isListening = false;
+        let silenceTimer = null;
+        const SILENCE_DURATION = 2000;
+        let micPermissionGranted = false;
+
+        let audioContext = null;
+        let audioQueue = [];
+        let isPlaying = false;
+
+        const ELEVEN_LABS_API_KEY = "";//Add your API key
+        const ELEVEN_LABS_VOICE_ID = "Xb7hH8MSUJpSbSDYk0k2";
+
+        // Constants
+        const OPENAI_API_KEY = '';
+        const API_URL = 'https://api.openai.com/v1/chat/completions';
+        const LUMA_API_KEY = '';
+
+    
+        // DOM Elements
+        const articleContainer = document.querySelector('.article-container');
+        const inputField = document.querySelector('.input-field');
+        const sendButton = document.querySelector('.send-button');
+        const micButton = document.querySelector('.mic-button');
+        const loadingDiv = document.querySelector('.loading');
+        let permissionInitialized = false;
+        let microphoneInitialized = false;
+
+        async function requestMicrophonePermission() {
+            if (permissionInitialized) return;
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                micPermissionGranted = true;
+                permissionInitialized = true;
+                
+                // Stop the tracks immediately as we don't need them yet
+                stream.getTracks().forEach(track => track.stop());
+                
+                // Initialize speech recognition after permission is granted
+                initializeSpeechRecognition();
+            } catch (error) {
+                console.error('Microphone permission denied:', error);
+                micPermissionGranted = false;
+                permissionInitialized = true;
+                micButton.disabled = true;
+                micButton.title = 'Microphone access denied';
+            }
+        }
+
+        function handleKeyboardShortcuts(event) {
+            // Alt + M for microphone
+            if (event.altKey && event.key.toLowerCase() === 'm') {
+                event.preventDefault();
+                startSpeechToText();
+                // Add visual feedback
+                micButton.classList.add('active');
+                setTimeout(() => micButton.classList.remove('active'), 200);
+            }
+        }
+
+        function initializeSpeechRecognition() {
+            if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+                alert('Speech recognition is not supported in this browser. Please use Chrome or Edge.');
+                return;
+            }
+
+    recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    recognition.onstart = () => {
+        isListening = true;
+        micButton.style.backgroundColor = '#28a745';
+        micButton.innerHTML = '<i class="fas fa-microphone"></i> Listening...';
+    };
+
+    recognition.onend = () => {
+        isListening = false;
+        micButton.style.backgroundColor = '#dc3545';
+        micButton.innerHTML = '<i class="fas fa-microphone"></i> Mic';
+        clearTimeout(silenceTimer);
+    };
+
+    recognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        isListening = false;
+        micButton.style.backgroundColor = '#dc3545';
+        micButton.innerHTML = '<i class="fas fa-microphone"></i> Mic';
+        clearTimeout(silenceTimer);
+    };
+
+    recognition.onresult = (event) => {
+        let finalTranscript = '';
+        let interimTranscript = '';
+
+        clearTimeout(silenceTimer);
+        silenceTimer = setTimeout(() => {
+            if (isListening) {
+                recognition.stop();
+                if (inputField.value.trim()) {
+                    handleUserInput(inputField.value.trim());
+                    inputField.value = '';
+                }
+            }
+        }, SILENCE_DURATION);
+
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+            const transcript = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+                finalTranscript += transcript;
+            } else {
+                interimTranscript += transcript;
+            }
+        }
+
+        if (finalTranscript !== '') {
+            inputField.value = finalTranscript;
+        }
+        if (interimTranscript !== '') {
+            inputField.value = interimTranscript;
+        }
+    };
+
+    recognition.onspeechstart = () => {
+        console.log('Speech detected');
+    };
+
+    recognition.onspeechend = () => {
+        console.log('Speech ended');
+        clearTimeout(silenceTimer);
+        silenceTimer = setTimeout(() => {
+            if (isListening) {
+                recognition.stop();
+                if (inputField.value.trim()) {
+                    handleUserInput(inputField.value.trim());
+                    inputField.value = '';
+                }
+            }
+        }, SILENCE_DURATION);
+    };
+}
+
+
+
+        // Add these constants at the top of your JavaScript
+        const API_BASE_URL = 'http://localhost:5000';
+
+        async function generateImage(prompt) {
+            const DALLE_API_URL = 'https://api.openai.com/v1/images/generations';
+            
+            const payload = {
+                model: "dall-e-3",
+                prompt: prompt,
+                n: 1,
+                size: "1024x1024"
+            };
+
+            try {
+                const response = await fetch(DALLE_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${OPENAI_API_KEY}`
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                return data.data[0].url;
+            } catch (error) {
+                console.error('Error generating image:', error);
+                return null;
+            }
+        }
+
+        function sanitizeHTML(html) {
+            // Remove any ```html and ``` markers
+            html = html.replace(/```html/g, '').replace(/```/g, '');
+            
+            // Remove any leading/trailing whitespace
+            html = html.trim();
+            
+            // If the content starts with <!DOCTYPE html> or <html>, extract just the body content
+            if (html.includes('<body>') && html.includes('</body>')) {
+                const bodyContent = html.match(/<body>([\s\S]*)<\/body>/i);
+                if (bodyContent && bodyContent[1]) {
+                    html = bodyContent[1].trim();
+                }
+            }
+            
+            return html;
+        }
+
+        // Add this function after your existing constants
+        function initializeIframe() {
+            const iframe = document.getElementById('articleFrame');
+            const defaultHTML = `
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <style>
+                        body {
+                            font-family: Arial, sans-serif;
+                            line-height: 1.6;
+                            margin: 20px;
+                            color: #333;
+                        }
+                        img {
+                            max-width: 100%;
+                            height: auto;
+                        }
+                        pre, code {
+                            display: none; /* Hide any code blocks */
+                        }
+                    </style>
+                </head>
+                <body>
+                    <h1>Title is: </h1>
+                </body>
+                </html>
+            `;
+            
+            iframe.srcdoc = defaultHTML;
+        }
+
+        function updateIframeContent(newContent) {
+            const iframe = document.getElementById('articleFrame');
+            const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+            
+            // Preserve the existing head content
+            const existingHead = iframeDoc.head.innerHTML;
+            
+            // Sanitize the content
+            const sanitizedContent = sanitizeHTML(newContent);
+            
+            // Update the content while preserving the head
+            iframeDoc.open();
+            iframeDoc.write(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    ${existingHead}
+                </head>
+                <body>
+                    ${sanitizedContent}
+                </body>
+                </html>
+            `);
+            iframeDoc.close();
+        }
+
+// Call this function when the page loads
+document.addEventListener('DOMContentLoaded', initializeIframe);
+
+        let conversationHistory = [
+                    {
+                role: "system",
+                content: [
+                        {
+                    type: "text",
+                    text: "Your task is to help user discuss about topics and write an article which may contain text, images and video. You can generate images using DALL-E 3 and videos using Luma AI. When the user wants to add an image, include 'generate image: [detailed image description]' in your edit_command. For videos, use 'generate video: [detailed video description]'. edit_command should have only the description to be sent to another AI which will do the coding so include what edits are to be made and not the code itself! You are expected to respond with JSON. The keys will be 'speak_content' whose value will be content to be spoken back to the user and 'edit_command' whose content will either be 'no' or a well written description of what the user has decided to change or add in the article, including image and video generation commands when appropriate."
+                }
+                ]
+            },
+            // Initial sample session
+            {
+                role: "user",
+                content: [
+                    {
+                        type: "text",
+                        text: "<Sample Session>\nUser: \"Let us write an article about AI and its rampant rise\""
+                    }
+                ]
+            },
+            {
+                role: "assistant",
+                content: [
+                    {
+                        type: "text",
+                        text: "{\n  \"speak_content\": \"Great choice! Artificial Intelligence has indeed seen a significant rise in recent years. Let's start by outlining the key points we want to cover in the article. We could discuss the history of AI, its current applications, the impact on various industries, ethical considerations, and future prospects. Do you have any specific areas you want to focus on or any additional ideas?\",\n  \"edit_command\": \"no\"\n}"
+                    }
+                ]
+            },
+            {
+                role: "user",
+                content: [
+                    {
+                        type: "text",
+                        text: "User: \"yes, let us do that. add the outline\""
+                    }
+                ]
+            },
+            {
+                role: "assistant",
+                content: [
+                    {
+                        type: "text",
+                        text: "{\n  \"speak_content\": \"Sure, here's a proposed outline for the article on AI and its rampant rise. Let me know if you want to make any changes or additions.\",\n  \"edit_command\": \"1. Introduction: Brief overview of AI and its significance.\\n\\n2. History of AI: \\n   - Early developments and milestones.\\n   - Key figures and breakthroughs.\\n\\n3. Current Applications of AI: \\n   - AI in healthcare, finance, transportation, and other industries.\\n   - Examples of AI technologies like machine learning, natural language processing, and robotics.\\n\\n4. Impact on Industries: \\n   - How AI is transforming various sectors.\\n   - Case studies of successful AI integration.\\n\\n5. Ethical Considerations: \\n   - Privacy concerns and data security.\\n   - The debate over AI and job displacement.\\n   - AI bias and fairness.\\n\\n6. Future Prospects: \\n   - Emerging trends and technologies in AI.\\n   - Predictions for the future of AI.\\n\\n7. Conclusion: \\n   - Recap of AI's impact and potential.\\n   - Final thoughts on the balance between innovation and ethics.\"\n}"
+                    }
+                ]
+            },
+            {
+                role: "user",
+                content: [
+                    {
+                        type: "text",
+                        text: "This is correct way to respond.\n</Sample Session>\n\nNew Session Begins.\n"
+                    }
+                ]
+            }
+        ];
+    
+        function startSpeechToText() {
+            if (!microphoneInitialized) {
+                requestMicrophonePermission().then(() => {
+                    if (micPermissionGranted) {
+                        microphoneInitialized = true;
+                        toggleSpeechRecognition();
+                    }
+                });
+                return;
+            }
+
+            if (micPermissionGranted) {
+                toggleSpeechRecognition();
+            }
+        }
+
+function toggleSpeechRecognition() {
+    if (isListening) {
+        recognition.stop();
+    } else {
+        try {
+            recognition.start();
+        } catch (error) {
+            console.error('Speech recognition error:', error);
+            // If there's an error, try reinitializing
+            initializeSpeechRecognition();
+            recognition.start();
+        }
+    }
+}
+    
+        // Function to show/hide loading state
+        function setLoading(isLoading) {
+            if (isLoading) {
+                loadingDiv.classList.add('visible');
+            } else {
+                loadingDiv.classList.remove('visible');
+            }
+            document.querySelector('.input-container').classList.toggle('disabled', isLoading);
+        }
+    
+        // Function to speak text (placeholder)
+        async function speakText(text) {
+    if (!text) return;
+
+    const url = `https://api.elevenlabs.io/v1/text-to-speech/${ELEVEN_LABS_VOICE_ID}`;
+    
+    const payload = {
+        text: text,
+        model_id: "eleven_monolingual_v1",
+        voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.5
+        }
+    };
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Accept': 'audio/mpeg',
+                'Content-Type': 'application/json',
+                'xi-api-key': ELEVEN_LABS_API_KEY
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+        
+        // Create audio element
+        const audio = new Audio(audioUrl);
+        
+        // Add to queue
+        audioQueue.push({
+            audio: audio,
+            url: audioUrl
+        });
+        
+        // If nothing is playing, start playing
+        if (!isPlaying) {
+            playNextInQueue();
+        }
+
+    } catch (error) {
+        console.error('Error in text-to-speech:', error);
+    }
+}
+
+function playNextInQueue() {
+    if (audioQueue.length === 0) {
+        isPlaying = false;
+        return;
+    }
+
+    isPlaying = true;
+    const current = audioQueue[0];
+    
+    current.audio.addEventListener('ended', () => {
+        URL.revokeObjectURL(current.url);
+        audioQueue.shift();
+        playNextInQueue();
+    });
+
+    current.audio.addEventListener('error', (e) => {
+        console.error('Audio playback error:', e);
+        audioQueue.shift();
+        playNextInQueue();
+    });
+
+    // Play with user interaction handling
+    const playPromise = current.audio.play();
+    if (playPromise !== undefined) {
+        playPromise.catch(error => {
+            if (error.name === 'NotAllowedError') {
+                // Create a play button if autoplay is not allowed
+                createPlayButton(current.audio);
+            }
+        });
+    }
+}
+
+// Add this new function to create a temporary play button when needed
+function createPlayButton(audio) {
+    const playButton = document.createElement('button');
+    playButton.innerHTML = '▶️ Play Response';
+    playButton.className = 'temp-play-button';
+    playButton.style.position = 'fixed';
+    playButton.style.top = '20px';
+    playButton.style.right = '20px';
+    playButton.style.zIndex = '1000';
+    playButton.style.padding = '10px';
+    playButton.style.backgroundColor = '#007bff';
+    playButton.style.color = 'white';
+    playButton.style.border = 'none';
+    playButton.style.borderRadius = '5px';
+    playButton.style.cursor = 'pointer';
+
+    playButton.onclick = () => {
+        audio.play();
+        playButton.remove();
+    };
+
+    document.body.appendChild(playButton);
+}
+    
+        // Main API call function
+        
+        async function makeOpenAIRequest(userInput) {
+            // Get current article content from iframe
+            const iframe = document.getElementById('articleFrame');
+            const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+            const currentArticleContent = iframeDoc.body.innerHTML;
+
+            // Add current article content and user input to history
+            conversationHistory.push({
+                role: "user",
+                content: [
+                    {
+                        type: "text",
+                        text: `Current Article Content:\n${currentArticleContent}\n\nUser: "${userInput}"`
+                    }
+                ]
+            });
+
+            const payload = {
+                model: "gpt-4o",
+                messages: conversationHistory,
+                temperature: 0,
+                max_tokens: 5670,
+                top_p: 1,
+                frequency_penalty: 0,
+                presence_penalty: 0,
+                response_format: {
+                    type: "json_object"
+                }
+            };
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${OPENAI_API_KEY}`
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                const assistantResponse = data.choices[0].message.content;
+                console.log(assistantResponse);
+                
+                // Add assistant's response to history
+                conversationHistory.push({
+                    role: "assistant",
+                    content: [
+                        {
+                            type: "text",
+                            text: assistantResponse
+                        }
+                    ]
+                });
+
+                return JSON.parse(assistantResponse);
+            } catch (error) {
+                console.error('Error:', error);
+                return null;
+            }
+        }
+    
+        // Function to edit document
+        async function editDoc(currentText, refactorPrompt) {
+            // Check for image generation request
+            if (refactorPrompt.toLowerCase().includes('generate image') || 
+                refactorPrompt.toLowerCase().includes('create image')) {
+                
+                const imagePrompt = refactorPrompt.replace(/.*generate image[: ]+|.*create image[: ]+/i, '').trim();
+                const imageUrl = await generateImage(imagePrompt);
+                
+                if (imageUrl) {
+                    const imageHTML = `<img src="${imageUrl}" alt="${imagePrompt}" style="max-width: 100%; height: auto;">`;
+                    return currentText ? currentText + '\n' + imageHTML : imageHTML;
+                }
+            }
+            
+            // Check for video generation request
+            if (refactorPrompt.toLowerCase().includes('generate video') || 
+    refactorPrompt.toLowerCase().includes('create video')) {
+    
+    const videoHTML = `
+        <div class="video-container">
+            <video controls width="100%">
+                <source src="cambrian_explosion.mp4" type="video/mp4">
+                Your browser does not support the video tag.
+            </video>
+        </div>`;
+    return currentText ? currentText + '\n' + videoHTML : videoHTML;
+}
+
+            // If not an image or video request, proceed with regular text editing
+            const payload = {
+                model: "gpt-4o",
+                messages: [
+                    {
+                        role: "user",
+                        content: "Return only the HTML code without any explanations, comments, or markdown formatting. Do not include any additional text or conversation - just the pure HTML code."
+                    },
+                    {
+                        role: "user",
+                        content: refactorPrompt
+                    },
+                    {
+                        role: "user",
+                        content: currentText
+                    }
+                ],
+                prediction: {
+                    type: "content",
+                    content: currentText
+                }
+            };
+
+            try {
+                const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${OPENAI_API_KEY}`
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                console.log(data);
+                return data.choices[0].message.content;
+                console.log(choices[0].message.content);
+            } catch (error) {
+                console.error('Error:', error);
+                return null;
+            }
+        }
+    
+        // Function to handle user input
+        async function handleUserInput(input) {
+            try {
+                setLoading(true);
+                const response = await makeOpenAIRequest(input);
+                
+                if (response) {
+                    await speakText(response.speak_content);
+
+                    if (response.edit_command !== 'no') {
+                        const iframe = document.getElementById('articleFrame');
+                        const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                        const currentText = iframeDoc.body.innerHTML;
+                        const newContent = await editDoc(currentText, response.edit_command);
+                        
+                        if (newContent) {
+                            const sanitizedContent = sanitizeHTML(newContent);
+                            iframeDoc.body.innerHTML = sanitizedContent;
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error in handleUserInput:', error);
+            } finally {
+                setLoading(false);
+            }
+        }
+            
+        // Event Listeners
+        sendButton.addEventListener('click', () => {
+            const input = inputField.value.trim();
+            if (input) {
+                handleUserInput(input);
+                inputField.value = '';
+            }
+        });
+    
+        inputField.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                const input = inputField.value.trim();
+                if (input) {
+                    handleUserInput(input);
+                    inputField.value = '';
+                }
+            }
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // Only add keyboard shortcut listener
+            document.addEventListener('keydown', handleKeyboardShortcuts);
+        });
+    
+
+        micButton.addEventListener('click', () => {
+            if (!isListening) {
+                startSpeechToText();
+            }
+        });
+</script>
+</body>
+</html>

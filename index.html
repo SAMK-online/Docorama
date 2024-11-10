@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Document Summarization & Video Generation App</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500&display=swap" rel="stylesheet">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <style>
+        /* Basic styling for the app */
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #f3f4f6;
+            color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            background-color: #ffffff;
+            border-radius: 15px;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+            padding: 40px;
+            margin: 20px;
+            transition: all 0.3s ease;
+        }
+        .container:hover {
+            transform: translateY(-5px);
+        }
+        h1 {
+            text-align: center;
+            font-size: 1.8rem;
+            color: #1f2937;
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-top: 15px;
+            font-weight: 500;
+            color: #4b5563;
+        }
+        input[type="file"],
+        input[type="text"],
+        textarea {
+            width: 100%;
+            padding: 10px;
+            margin-top: 8px;
+            border-radius: 8px;
+            border: 1px solid #cbd5e1;
+            outline: none;
+            transition: border-color 0.3s;
+        }
+        input:focus,
+        textarea:focus {
+            border-color: #007BFF;
+        }
+        button {
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            padding: 12px 18px;
+            margin-top: 15px;
+            border-radius: 8px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background-color 0.3s, transform 0.3s;
+            width: 100%;
+            text-align: center;
+        }
+        button:hover {
+            background-color: #0056b3;
+            transform: translateY(-2px);
+        }
+        #loader {
+            display: none;
+            text-align: center;
+            margin-top: 20px;
+            font-weight: bold;
+            color: #007BFF;
+        }
+        #progressBar {
+            display: none;
+            width: 100%;
+            background-color: #e5e7eb;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-top: 20px;
+        }
+        #progress {
+            width: 0;
+            height: 10px;
+            background-color: #007BFF;
+            transition: width 0.5s;
+        }
+        #progressText {
+            text-align: center;
+            font-size: 14px;
+            color: #1f2937;
+            margin-top: 10px;
+        }
+        #response {
+            margin-top: 20px;
+            font-weight: bold;
+            text-align: center;
+            color: #1f2937;
+            word-wrap: break-word;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Document Summarization & Video Generation App</h1>
+
+        <!-- Form for Document Summarization -->
+        <form id="uploadForm" enctype="multipart/form-data" class="form-group">
+            <label for="file">Upload DOCX file:</label>
+            <input type="file" id="file" name="file" accept=".docx" required>
+            <button type="submit">Summarize</button>
+        </form>
+
+        <h2>Summary:</h2>
+        <div id="summary" class="form-group"></div>
+
+        <!-- Form for Captions AI Script Submission -->
+        <form id="submitForm" class="form-group">
+            <label for="creatorName">Creator Name:</label>
+            <input type="text" id="creatorName" name="creatorName" required>
+
+            <label for="script">Script:</label>
+            <textarea id="script" name="script" rows="5" required></textarea>
+
+            <button type="submit">Generate Video</button>
+        </form>
+
+        <div id="loader">Loading...</div>
+        <div id="progressBar">
+            <div id="progress"></div>
+        </div>
+        <div id="progressText">0%</div>
+
+        <h2>Generated Video URL:</h2>
+        <div id="response"></div>
+    </div>
+
+    <script>
+        $(document).ready(function() {
+            $('#uploadForm').on('submit', function(event) {
+                event.preventDefault();
+                var formData = new FormData(this);
+
+                $.ajax({
+                    url: '/summarize',
+                    type: 'POST',
+                    data: formData,
+                    contentType: false,
+                    processData: false,
+                    success: function(response) {
+                        $('#summary').text(response.summary);
+                        $('#script').val(response.summary);
+                    },
+                    error: function() {
+                        alert('An error occurred while summarizing the document.');
+                    }
+                });
+            });
+
+            $('#submitForm').on('submit', function(event) {
+                event.preventDefault();
+                var formData = {
+                    creatorName: $('#creatorName').val(),
+                    script: $('#script').val()
+                };
+
+                $('#loader').show();
+                $('#progressBar').show();
+                $('#progressText').text('0%');
+
+                $.ajax({
+                    url: '/submit_script',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify(formData),
+                    success: function(response) {
+                        var operationId = response.operationId;
+                        console.log("Operation ID:", operationId); // Debugging output
+                        if (!operationId) {
+                            $('#loader').hide();
+                            $('#progressBar').hide();
+                            alert('Failed to get operation ID. Check the response from Captions AI.');
+                            return;
+                        }
+                        setTimeout(function() {
+                            pollVideoGeneration(operationId, 5000);
+                        }, 30000);
+                    },
+                    error: function() {
+                        $('#loader').hide();
+                        $('#progressBar').hide();
+                        alert('An error occurred while submitting the script.');
+                    }
+                });
+            });
+
+            function pollVideoGeneration(operationId, interval) {
+                var currentProgress = 0;
+                var pollInterval = setInterval(function() {
+                    $.ajax({
+                        url: '/poll_status',
+                        type: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify({ operationId: operationId }),
+                        success: function(response) {
+                            console.log("Poll Status Response:", response); // Debugging output
+                            var progress = response.progress || 0;
+
+                            if (progress > currentProgress) {
+                                currentProgress = progress;
+                                $('#progress').css('width', currentProgress + '%');
+                                $('#progressText').text(currentProgress + '%');
+                            }
+
+                            if (response.state === 'COMPLETED') {
+                                clearInterval(pollInterval);
+                                $('#loader').hide();
+                                $('#progressBar').hide();
+                                $('#response').text('Video URL: ' + response.videoUrl);
+                            } else if (response.state === 'FAILED') {
+                                clearInterval(pollInterval);
+                                $('#loader').hide();
+                                $('#progressBar').hide();
+                                $('#response').text('Video generation failed.');
+                            } else if (currentProgress >= 96) {
+                                clearInterval(pollInterval);
+                                setTimeout(function() {
+                                    pollVideoGeneration(operationId, 15000);
+                                }, 15000);
+                            }
+                        },
+                        error: function() {
+                            clearInterval(pollInterval);
+                            $('#loader').hide();
+                            $('#progressBar').hide();
+                            alert('An error occurred while polling the video generation status.');
+                        }
+                    });
+                }, interval);
+            }
+        });
+    </script>
+</body>
+</html>
